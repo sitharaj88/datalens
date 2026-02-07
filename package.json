@@ -1,0 +1,395 @@
+{
+  "name": "datalens-db-viewer",
+  "displayName": "DataLens - Database Viewer Pro",
+  "description": "All-in-one database client for VS Code — browse schemas, run queries, edit data, visualize charts, and manage 15+ databases including PostgreSQL, MySQL, MongoDB, Redis, SQLite, and more",
+  "version": "1.0.0",
+  "publisher": "sitharaj",
+  "author": {
+    "name": "Sitharaj Seenivasan",
+    "url": "https://github.com/sitharaj88"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sitharaj88/datalens.git"
+  },
+  "homepage": "https://github.com/sitharaj88/datalens#readme",
+  "bugs": {
+    "url": "https://github.com/sitharaj88/datalens/issues"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Visualization",
+    "Data Science"
+  ],
+  "keywords": [
+    "database",
+    "sql",
+    "sqlite",
+    "postgresql",
+    "mysql",
+    "mariadb",
+    "mongodb",
+    "redis",
+    "neo4j",
+    "clickhouse",
+    "cassandra",
+    "dynamodb",
+    "elasticsearch",
+    "firestore",
+    "oracle",
+    "cockroachdb",
+    "query",
+    "viewer",
+    "erd",
+    "schema",
+    "ssh-tunnel",
+    "ai-sql"
+  ],
+  "icon": "media/logo.png",
+  "galleryBanner": {
+    "color": "#6366F1",
+    "theme": "dark"
+  },
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "dbViewer",
+          "title": "DataLens",
+          "icon": "media/icons/database.svg"
+        }
+      ]
+    },
+    "views": {
+      "dbViewer": [
+        {
+          "id": "dbViewer.connections",
+          "name": "Connections"
+        },
+        {
+          "id": "dbViewer.schemaExplorer",
+          "name": "Schema Explorer"
+        },
+        {
+          "id": "dbViewer.queryLibrary",
+          "name": "Saved Queries"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "dbViewer.addConnection",
+        "title": "Add Connection",
+        "icon": "$(add)",
+        "category": "DataLens"
+      },
+      {
+        "command": "dbViewer.addConnectionFromURI",
+        "title": "Add Connection from URI",
+        "icon": "$(link)",
+        "category": "DataLens"
+      },
+      {
+        "command": "dbViewer.removeConnection",
+        "title": "Remove Connection",
+        "icon": "$(trash)",
+        "category": "DataLens"
+      },
+      {
+        "command": "dbViewer.connect",
+        "title": "Connect",
+        "icon": "$(plug)",
+        "category": "DataLens"
+      },
+      {
+        "command": "dbViewer.disconnect",
+        "title": "Disconnect",
+        "icon": "$(debug-disconnect)",
+        "category": "DataLens"
+      },
+      {
+        "command": "dbViewer.refresh",
+        "title": "Refresh",
+        "icon": "$(refresh)",
+        "category": "DataLens"
+      },
+      {
+        "command": "dbViewer.newQuery",
+        "title": "New Query",
+        "icon": "$(new-file)",
+        "category": "DataLens"
+      },
+      {
+        "command": "dbViewer.runQuery",
+        "title": "Run Query",
+        "icon": "$(play)",
+        "category": "DataLens"
+      },
+      {
+        "command": "dbViewer.viewTableData",
+        "title": "View Data",
+        "icon": "$(table)",
+        "category": "DataLens"
+      },
+      {
+        "command": "dbViewer.exportData",
+        "title": "Export Data",
+        "icon": "$(export)",
+        "category": "DataLens"
+      },
+      {
+        "command": "dbViewer.discoverConnections",
+        "title": "Discover Connections from .env",
+        "icon": "$(search)",
+        "category": "DataLens"
+      },
+      {
+        "command": "dbViewer.createGroup",
+        "title": "Create Connection Group",
+        "icon": "$(folder-opened)",
+        "category": "DataLens"
+      },
+      {
+        "command": "dbViewer.renameGroup",
+        "title": "Rename Group",
+        "category": "DataLens"
+      },
+      {
+        "command": "dbViewer.deleteGroup",
+        "title": "Delete Group",
+        "icon": "$(trash)",
+        "category": "DataLens"
+      },
+      {
+        "command": "dbViewer.copyTableName",
+        "title": "Copy Table Name",
+        "icon": "$(clippy)",
+        "category": "DataLens"
+      },
+      {
+        "command": "dbViewer.generateSelect",
+        "title": "Generate SELECT Query",
+        "icon": "$(code)",
+        "category": "DataLens"
+      },
+      {
+        "command": "dbViewer.generateInsert",
+        "title": "Generate INSERT Template",
+        "icon": "$(code)",
+        "category": "DataLens"
+      },
+      {
+        "command": "dbViewer.globalSearch",
+        "title": "Search Across Databases",
+        "icon": "$(search)",
+        "category": "DataLens"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "dbViewer.addConnection",
+          "when": "view == dbViewer.connections",
+          "group": "navigation"
+        },
+        {
+          "command": "dbViewer.addConnectionFromURI",
+          "when": "view == dbViewer.connections",
+          "group": "navigation"
+        },
+        {
+          "command": "dbViewer.discoverConnections",
+          "when": "view == dbViewer.connections",
+          "group": "navigation"
+        },
+        {
+          "command": "dbViewer.createGroup",
+          "when": "view == dbViewer.connections",
+          "group": "navigation"
+        },
+        {
+          "command": "dbViewer.refresh",
+          "when": "view == dbViewer.schemaExplorer",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "dbViewer.connect",
+          "when": "view == dbViewer.connections && viewItem == connection-disconnected",
+          "group": "inline"
+        },
+        {
+          "command": "dbViewer.disconnect",
+          "when": "view == dbViewer.connections && viewItem == connection-connected",
+          "group": "inline"
+        },
+        {
+          "command": "dbViewer.removeConnection",
+          "when": "view == dbViewer.connections && viewItem =~ /^connection/",
+          "group": "inline"
+        },
+        {
+          "command": "dbViewer.viewTableData",
+          "when": "view == dbViewer.schemaExplorer && viewItem == table",
+          "group": "inline"
+        },
+        {
+          "command": "dbViewer.newQuery",
+          "when": "view == dbViewer.schemaExplorer && viewItem == table"
+        },
+        {
+          "command": "dbViewer.copyTableName",
+          "when": "view == dbViewer.schemaExplorer && viewItem == table",
+          "group": "1_copy"
+        },
+        {
+          "command": "dbViewer.generateSelect",
+          "when": "view == dbViewer.schemaExplorer && viewItem == table",
+          "group": "2_generate"
+        },
+        {
+          "command": "dbViewer.generateInsert",
+          "when": "view == dbViewer.schemaExplorer && viewItem == table",
+          "group": "2_generate"
+        },
+        {
+          "command": "dbViewer.exportData",
+          "when": "view == dbViewer.schemaExplorer && viewItem == table",
+          "group": "3_export"
+        },
+        {
+          "command": "dbViewer.renameGroup",
+          "when": "view == dbViewer.connections && viewItem == group"
+        },
+        {
+          "command": "dbViewer.deleteGroup",
+          "when": "view == dbViewer.connections && viewItem == group"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "DataLens",
+      "properties": {
+        "dbViewer.maxRows": {
+          "type": "number",
+          "default": 1000,
+          "description": "Maximum number of rows to fetch in queries"
+        },
+        "dbViewer.autoDiscover": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically discover database connections from .env files"
+        },
+        "dbViewer.queryTimeout": {
+          "type": "number",
+          "default": 30000,
+          "description": "Query timeout in milliseconds"
+        },
+        "dbViewer.confirmDelete": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show confirmation dialog before deleting rows"
+        },
+        "dbViewer.ai.provider": {
+          "type": "string",
+          "enum": [
+            "openai",
+            "anthropic",
+            "ollama"
+          ],
+          "default": "openai",
+          "description": "AI provider for natural language to SQL"
+        },
+        "dbViewer.ai.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key for AI provider"
+        },
+        "dbViewer.ai.model": {
+          "type": "string",
+          "default": "",
+          "description": "Model to use for AI features (e.g., gpt-4, claude-sonnet-4-5-20250929)"
+        },
+        "dbViewer.dataMasking.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable data masking for sensitive columns"
+        },
+        "dbViewer.dataMasking.patterns": {
+          "type": "array",
+          "default": [
+            "email",
+            "password",
+            "ssn",
+            "credit_card",
+            "phone"
+          ],
+          "description": "Column name patterns to mask"
+        },
+        "dbViewer.schemaCacheTTL": {
+          "type": "number",
+          "default": 60000,
+          "description": "Schema cache time-to-live in milliseconds"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "npm run build:extension && npm run build:webview",
+    "build:extension": "esbuild src/extension/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:ssh2 --external:@clickhouse/client --external:neo4j-driver --external:@aws-sdk/client-dynamodb --external:@aws-sdk/lib-dynamodb --external:pg --external:mysql2 --external:mongodb --external:ioredis --external:cassandra-driver --external:oracledb --external:tedious --external:better-sqlite3 --external:@elastic/elasticsearch --external:firebase-admin --format=cjs --platform=node --minify && cp node_modules/sql.js/dist/sql-wasm.wasm dist/",
+    "build:webview": "cd src/webview && npm run build",
+    "watch": "concurrently \"npm run watch:extension\" \"npm run watch:webview\"",
+    "watch:extension": "cp node_modules/sql.js/dist/sql-wasm.wasm dist/ 2>/dev/null; esbuild src/extension/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:ssh2 --external:@clickhouse/client --external:neo4j-driver --external:@aws-sdk/client-dynamodb --external:@aws-sdk/lib-dynamodb --external:pg --external:mysql2 --external:mongodb --external:ioredis --external:cassandra-driver --external:oracledb --external:tedious --external:better-sqlite3 --external:@elastic/elasticsearch --external:firebase-admin --format=cjs --platform=node --watch --sourcemap",
+    "watch:webview": "cd src/webview && npm run dev",
+    "lint": "eslint src --ext ts,tsx",
+    "lint:fix": "eslint src --ext ts,tsx --fix",
+    "test": "vitest",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/ssh2": "^1.15.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.19.0",
+    "@typescript-eslint/parser": "^6.19.0",
+    "@vscode/test-electron": "^2.3.8",
+    "@vscode/vsce": "^2.32.0",
+    "concurrently": "^8.2.2",
+    "electron-rebuild": "^3.2.9",
+    "esbuild": "^0.20.0",
+    "eslint": "^8.56.0",
+    "prettier": "^3.2.4",
+    "typescript": "^5.3.3",
+    "vitest": "^1.2.1"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.500.0",
+    "@aws-sdk/lib-dynamodb": "^3.500.0",
+    "@clickhouse/client": "^0.2.0",
+    "@elastic/elasticsearch": "^8.12.0",
+    "cassandra-driver": "^4.7.0",
+    "csv-parse": "^5.6.0",
+    "dotenv": "^16.4.0",
+    "firebase-admin": "^12.0.0",
+    "ioredis": "^5.3.0",
+    "mongodb": "^6.3.0",
+    "mysql2": "^3.9.0",
+    "neo4j-driver": "^5.17.0",
+    "oracledb": "^6.3.0",
+    "pg": "^8.11.3",
+    "sql.js": "^1.13.0",
+    "ssh2": "^1.15.0",
+    "tedious": "^18.0.0",
+    "uuid": "^9.0.0",
+    "xlsx": "^0.18.5"
+  }
+}

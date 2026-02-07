@@ -1,0 +1,36 @@
+.vscode/**
+.vscode-test/**
+.github/**
+node_modules/**
+test/**
+
+# Source files (keep only webview dist, no maps)
+src/**
+!src/webview/dist/**
+src/webview/node_modules/**
+
+# Config files
+.gitignore
+.eslintrc*
+.prettierrc*
+tsconfig.json
+tsconfig.*.json
+vite.config.*
+tailwind.config.*
+postcss.config.*
+
+# TypeScript source
+**/*.ts
+**/*.tsx
+
+# Build artifacts not needed
+**/*.map
+*.vsix
+*.log
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.local
+.DS_Store
+CONTRIBUTING.md
