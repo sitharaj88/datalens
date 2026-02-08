@@ -4,6 +4,8 @@ import { MessageRouter } from '../services/messageRouter';
 import type { Message } from '../../shared/types/messages';
 import type { AIService } from '../services/aiService';
 import type { QueryBookmarkService } from '../services/queryBookmarkService';
+import { AdapterFactory } from '../database/factory';
+import { buildCapabilities } from '../services/capabilitiesBuilder';
 
 export class QueryWebviewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'dbViewer.queryPanel';
@@ -170,9 +172,15 @@ export class QueryPanelManager {
 
     const nonce = getNonce();
 
+    const connection = this.connectionService.getConnection(connectionId);
+    const adapter = AdapterFactory.get(connectionId);
+    const capabilities = adapter?.isConnected() ? buildCapabilities(adapter) : null;
+
     const initialState = JSON.stringify({
       connectionId,
-      tableName: tableName || null
+      tableName: tableName || null,
+      databaseType: connection?.type || null,
+      capabilities,
     });
 
     return `<!DOCTYPE html>

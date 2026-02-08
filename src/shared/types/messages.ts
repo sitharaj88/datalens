@@ -59,7 +59,9 @@ export type MessageType =
   // Lint
   | 'LINT_SQL'
   // File save
-  | 'SAVE_FILE';
+  | 'SAVE_FILE'
+  // Database capabilities
+  | 'GET_DATABASE_CAPABILITIES';
 
 export interface Message<T = unknown> {
   type: MessageType;

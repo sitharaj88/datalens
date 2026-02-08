@@ -98,6 +98,24 @@ export interface ISchemaMetadata {
   databases?: string[];
 }
 
+export type QueryLanguage = 'sql' | 'json' | 'cypher' | 'plaintext' | 'cql';
+
+export interface DatabaseCapabilities {
+  databaseType: string;
+  queryLanguage: QueryLanguage;
+  editorLanguageId: string;
+  placeholderText: string;
+  label: string;
+  supportsExplain: boolean;
+  supportsTransactions: boolean;
+  supportsSqlLint: boolean;
+  supportsSqlFormat: boolean;
+  supportsStoredProcedures: boolean;
+  supportsTriggers: boolean;
+  supportsViews: boolean;
+  supportsMultiStatement: boolean;
+}
+
 export type MessageType =
   | 'EXECUTE_QUERY'
   | 'GET_TABLE_DATA'
@@ -136,7 +154,8 @@ export type MessageType =
   | 'RESTORE_DATABASE'
   | 'GLOBAL_SEARCH'
   | 'LINT_SQL'
-  | 'SAVE_FILE';
+  | 'SAVE_FILE'
+  | 'GET_DATABASE_CAPABILITIES';
 
 export interface Message<T = unknown> {
   type: MessageType;

@@ -16,6 +16,24 @@ export enum DatabaseType {
   OracleDB = 'oracle'
 }
 
+export type QueryLanguage = 'sql' | 'json' | 'cypher' | 'plaintext' | 'cql';
+
+export interface DatabaseCapabilities {
+  databaseType: DatabaseType;
+  queryLanguage: QueryLanguage;
+  editorLanguageId: string;
+  placeholderText: string;
+  label: string;
+  supportsExplain: boolean;
+  supportsTransactions: boolean;
+  supportsSqlLint: boolean;
+  supportsSqlFormat: boolean;
+  supportsStoredProcedures: boolean;
+  supportsTriggers: boolean;
+  supportsViews: boolean;
+  supportsMultiStatement: boolean;
+}
+
 export interface IConnectionConfig {
   id: string;
   name: string;

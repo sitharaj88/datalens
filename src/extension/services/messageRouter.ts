@@ -15,6 +15,7 @@ import type { AIService } from './aiService';
 import type { QueryBookmarkService } from './queryBookmarkService';
 import type { GlobalSearchService } from './globalSearchService';
 import type { DatabaseType } from '../../shared/types/database';
+import { buildCapabilities } from './capabilitiesBuilder';
 
 export class MessageRouter {
   private lintService = new SQLLintService();
@@ -584,6 +585,16 @@ export class MessageRouter {
           const restoreResult = await this.backupRestoreService.restore(restoreAdapter, restoreDbType, outputPath);
           response.success = true;
           response.data = restoreResult;
+          break;
+        }
+
+        // Database Capabilities
+        case 'GET_DATABASE_CAPABILITIES': {
+          const { connectionId } = message.payload as { connectionId: string };
+          const adapter = this.getConnectedAdapter(connectionId);
+          const capabilities = buildCapabilities(adapter);
+          response.success = true;
+          response.data = capabilities;
           break;
         }
 

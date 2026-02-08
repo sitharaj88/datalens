@@ -13,14 +13,40 @@ import { useTabStore } from './store/tabStore';
 import { useSettingsStore } from './store/settingsStore';
 import { useQueryHistory } from './hooks/useQueryHistory';
 import { useKeyboardShortcuts, formatShortcut } from './hooks/useKeyboardShortcuts';
-import type { IQueryResult, IColumn } from './types';
+import type { IQueryResult, IColumn, DatabaseCapabilities } from './types';
 
 declare global {
   interface Window {
     initialState?: {
       connectionId: string;
       tableName: string | null;
+      databaseType: string | null;
+      capabilities: DatabaseCapabilities | null;
     };
+  }
+}
+
+function getDefaultQuery(tableName: string, capabilities: DatabaseCapabilities | null): string {
+  const lang = capabilities?.queryLanguage;
+  const dbType = capabilities?.databaseType;
+
+  switch (lang) {
+    case 'json':
+      if (dbType === 'mongodb') {
+        return `{ "find": "${tableName}", "limit": 100 }`;
+      }
+      if (dbType === 'elasticsearch') {
+        return `{ "query": { "match_all": {} }, "size": 100 }`;
+      }
+      return `{}`;
+    case 'cypher':
+      return `MATCH (n:${tableName}) RETURN n LIMIT 100`;
+    case 'plaintext':
+      return '';
+    case 'cql':
+      return `SELECT * FROM ${tableName} LIMIT 100;`;
+    default:
+      return `SELECT * FROM "${tableName}" LIMIT 100`;
   }
 }
 
@@ -44,17 +70,26 @@ function App() {
   // Initialize from window state
   useEffect(() => {
     if (window.initialState) {
-      const { connectionId, tableName } = window.initialState;
+      const { connectionId, tableName, databaseType, capabilities } = window.initialState;
+
+      const defaultQuery = tableName ? getDefaultQuery(tableName, capabilities) : '';
 
       if (tableName) {
         addTab({
           title: tableName,
           connectionId,
           tableName,
-          query: `SELECT * FROM "${tableName}" LIMIT 100`,
+          query: defaultQuery,
+          databaseType: databaseType || null,
+          capabilities: capabilities || null,
         });
       } else {
-        addTab({ title: 'New Query', connectionId });
+        addTab({
+          title: 'New Query',
+          connectionId,
+          databaseType: databaseType || null,
+          capabilities: capabilities || null,
+        });
       }
     } else {
       // No initial state - just add empty tab
@@ -63,6 +98,30 @@ function App() {
       }
     }
   }, []); // Only run once
+
+  // Fetch capabilities if tab has connectionId but no capabilities
+  useEffect(() => {
+    if (activeTab?.connectionId && !activeTab.capabilities) {
+      fetchCapabilities(activeTab.id, activeTab.connectionId);
+    }
+  }, [activeTab?.connectionId, activeTab?.capabilities]);
+
+  const fetchCapabilities = async (tabId: string, connectionId: string) => {
+    try {
+      const response = await vscode.postMessage({
+        type: 'GET_DATABASE_CAPABILITIES',
+        id: crypto.randomUUID(),
+        payload: { connectionId }
+      });
+      if (response.success && response.data) {
+        const caps = response.data as DatabaseCapabilities;
+        updateTab(tabId, {
+          capabilities: caps,
+          databaseType: caps.databaseType,
+        });
+      }
+    } catch { /* capabilities fetch may fail - that's OK */ }
+  };
 
   // Load columns when active tab's table changes
   useEffect(() => {
@@ -330,10 +389,11 @@ function App() {
             onRun={handleRunQuery}
             loading={activeTab.loading}
             connectionId={activeTab.connectionId || ''}
+            capabilities={activeTab.capabilities || null}
           />
 
-          {/* Lint Panel */}
-          {activeTab.connectionId && activeTab.query.trim() && (
+          {/* Lint Panel - only for SQL databases */}
+          {activeTab.connectionId && activeTab.query.trim() && activeTab.capabilities?.supportsSqlLint !== false && (
             <LintPanel
               connectionId={activeTab.connectionId}
               query={activeTab.query}
@@ -379,19 +439,21 @@ function App() {
                 Chart
                 <kbd className="kbd" style={{ marginLeft: 8 }}>{formatShortcut({ key: '2', ctrl: true })}</kbd>
               </button>
-              <button className={`tab ${activeView === 'plan' ? 'active' : ''}`} onClick={() => setActiveView('plan')}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-                </svg>
-                Plan
-                <kbd className="kbd" style={{ marginLeft: 8 }}>{formatShortcut({ key: '3', ctrl: true })}</kbd>
-              </button>
+              {activeTab.capabilities?.supportsExplain !== false && (
+                <button className={`tab ${activeView === 'plan' ? 'active' : ''}`} onClick={() => setActiveView('plan')}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                  </svg>
+                  Plan
+                  <kbd className="kbd" style={{ marginLeft: 8 }}>{formatShortcut({ key: '3', ctrl: true })}</kbd>
+                </button>
+              )}
             </div>
 
             <div className="toolbar-spacer" />
 
-            {/* Transaction Bar */}
-            {activeTab.connectionId && (
+            {/* Transaction Bar - only for databases that support transactions */}
+            {activeTab.connectionId && activeTab.capabilities?.supportsTransactions !== false && (
               <div className="toolbar-section" style={{ paddingRight: 8 }}>
                 <TransactionBar
                   connectionId={activeTab.connectionId}
@@ -457,6 +519,11 @@ function App() {
         <div className="status-item">
           <div className={`status-dot ${activeTab?.connectionId ? '' : 'warning'}`} />
           <span>{activeTab?.connectionId ? 'Connected' : 'No Connection'}</span>
+          {activeTab?.capabilities?.databaseType && (
+            <span className="badge badge-secondary" style={{ marginLeft: 8, textTransform: 'capitalize' }}>
+              {activeTab.capabilities.databaseType}
+            </span>
+          )}
           {activeTab?.result && (
             <>
               <span style={{ margin: '0 8px', color: 'var(--border-default)' }}>|</span>

@@ -7,7 +7,7 @@ import { useVscodeApi } from '../hooks/useVscodeApi';
 import { useSettingsStore } from '../store/settingsStore';
 import type { ThemeMode } from '../store/settingsStore';
 import { SnippetPicker } from './SnippetPicker';
-import type { ISchemaMetadata } from '../types';
+import type { ISchemaMetadata, DatabaseCapabilities } from '../types';
 
 function getMonacoTheme(theme: ThemeMode): string {
   if (theme === 'light') return 'vs';
@@ -22,9 +22,10 @@ interface QueryEditorProps {
   onRun: (query: string) => void;
   loading?: boolean;
   connectionId: string;
+  capabilities: DatabaseCapabilities | null;
 }
 
-export function QueryEditor({ value, onChange, onRun, loading, connectionId }: QueryEditorProps) {
+export function QueryEditor({ value, onChange, onRun, loading, connectionId, capabilities }: QueryEditorProps) {
   const { editorHeight, setEditorHeight, editorFontSize, wordWrap, showLineNumbers, theme } = useSettingsStore();
   const [showHistory, setShowHistory] = useState(false);
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
@@ -35,9 +36,17 @@ export function QueryEditor({ value, onChange, onRun, loading, connectionId }: Q
   const { getRecentQueries } = useQueryHistory();
   const recentQueries = getRecentQueries(connectionId, 15);
 
-  // Fetch schema metadata for autocomplete when connection changes
+  const editorLanguage = capabilities?.editorLanguageId || 'sql';
+
+  // Fetch schema metadata for autocomplete when connection changes (SQL-based only)
   useEffect(() => {
     if (!connectionId) {
+      setSchemaMetadata(null);
+      return;
+    }
+
+    // Only fetch schema for SQL-based languages
+    if (editorLanguage !== 'sql') {
       setSchemaMetadata(null);
       return;
     }
@@ -58,7 +67,7 @@ export function QueryEditor({ value, onChange, onRun, loading, connectionId }: Q
     };
 
     fetchSchema();
-  }, [connectionId, vscode]);
+  }, [connectionId, vscode, editorLanguage]);
 
   const handleEditorChange = useCallback((newValue: string | undefined) => {
     onChange(newValue || '');
@@ -119,11 +128,13 @@ export function QueryEditor({ value, onChange, onRun, loading, connectionId }: Q
   const handleEditorMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
 
-    // Register schema-aware autocomplete provider (replaces basic keyword completion)
-    if (autocompleteDisposableRef.current) {
-      autocompleteDisposableRef.current.dispose();
+    // Register schema-aware autocomplete provider only for SQL-based languages
+    if (editorLanguage === 'sql') {
+      if (autocompleteDisposableRef.current) {
+        autocompleteDisposableRef.current.dispose();
+      }
+      autocompleteDisposableRef.current = registerAutocompleteProvider(monaco);
     }
-    autocompleteDisposableRef.current = registerAutocompleteProvider(monaco);
 
     // Run statement at cursor (Ctrl+Enter)
     editor.addAction({
@@ -237,7 +248,10 @@ export function QueryEditor({ value, onChange, onRun, loading, connectionId }: Q
   }, []);
 
   const runShortcut = formatShortcut({ key: 'Enter', ctrl: true });
-  const multiStatementCount = value.split(';').filter(s => s.trim().length > 0 && !s.trim().startsWith('--')).length;
+  const isMultiStatementCapable = capabilities?.supportsMultiStatement !== false;
+  const multiStatementCount = isMultiStatementCapable
+    ? value.split(';').filter(s => s.trim().length > 0 && !s.trim().startsWith('--')).length
+    : 1;
 
   return (
     <div ref={containerRef} className="query-editor-container relative">
@@ -248,7 +262,7 @@ export function QueryEditor({ value, onChange, onRun, loading, connectionId }: Q
             <polyline points="16 18 22 12 16 6" />
             <polyline points="8 6 2 12 8 18" />
           </svg>
-          <span>SQL Editor</span>
+          <span>{capabilities?.label || 'SQL Editor'}</span>
         </div>
 
         <div className="toolbar-divider" />
@@ -325,23 +339,26 @@ export function QueryEditor({ value, onChange, onRun, loading, connectionId }: Q
           </button>
 
           {/* Snippet Picker */}
-          <SnippetPicker onSelect={handleSnippetSelect} />
+          <SnippetPicker onSelect={handleSnippetSelect} capabilities={capabilities} />
 
-          <button
-            className="btn btn-ghost btn-icon"
-            onClick={() => {
-              const formatted = formatSQL(value);
-              onChange(formatted);
-            }}
-            title="Format SQL (Ctrl+Shift+F)"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="21" y1="10" x2="3" y2="10" />
-              <line x1="21" y1="6" x2="3" y2="6" />
-              <line x1="21" y1="14" x2="3" y2="14" />
-              <line x1="21" y1="18" x2="3" y2="18" />
-            </svg>
-          </button>
+          {/* Format button - only for SQL databases */}
+          {capabilities?.supportsSqlFormat !== false && (
+            <button
+              className="btn btn-ghost btn-icon"
+              onClick={() => {
+                const formatted = formatSQL(value);
+                onChange(formatted);
+              }}
+              title="Format SQL (Ctrl+Shift+F)"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="21" y1="10" x2="3" y2="10" />
+                <line x1="21" y1="6" x2="3" y2="6" />
+                <line x1="21" y1="14" x2="3" y2="14" />
+                <line x1="21" y1="18" x2="3" y2="18" />
+              </svg>
+            </button>
+          )}
 
           <button
             className="btn btn-ghost btn-icon"
@@ -390,10 +407,13 @@ export function QueryEditor({ value, onChange, onRun, loading, connectionId }: Q
       )}
 
       {/* Monaco Editor */}
-      <div style={{ height: editorHeight, background: 'var(--bg-primary)' }}>
+      <div style={{ height: editorHeight, background: 'var(--bg-primary)', position: 'relative' }}>
+        {!value && capabilities?.placeholderText && (
+          <div className="editor-placeholder">{capabilities.placeholderText}</div>
+        )}
         <Editor
           height="100%"
-          defaultLanguage="sql"
+          defaultLanguage={editorLanguage}
           value={value}
           onChange={handleEditorChange}
           onMount={handleEditorMount}

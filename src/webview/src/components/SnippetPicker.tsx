@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import type { DatabaseCapabilities } from '../types';
 
 interface Snippet {
   id: string;
@@ -31,11 +32,77 @@ const BUILT_IN_SNIPPETS: Snippet[] = [
   { id: 'active-queries', name: 'Active Queries (PostgreSQL)', query: 'SELECT pid, usename, state, query, query_start\nFROM pg_stat_activity\nWHERE state != \'idle\'\nORDER BY query_start;', category: 'Admin' },
 ];
 
-interface SnippetPickerProps {
-  onSelect: (query: string) => void;
+const MONGODB_SNIPPETS: Snippet[] = [
+  { id: 'mongo-find', name: 'Find Documents', query: '{ "find": "${collection}", "filter": {}, "limit": 100 }', category: 'Query' },
+  { id: 'mongo-count', name: 'Count Documents', query: '{ "count": "${collection}", "query": {} }', category: 'Query' },
+  { id: 'mongo-aggregate', name: 'Aggregate Pipeline', query: '{ "aggregate": "${collection}", "pipeline": [\n  { "$match": {} },\n  { "$group": { "_id": "$${field}", "count": { "$sum": 1 } } },\n  { "$sort": { "count": -1 } }\n], "cursor": {} }', category: 'Aggregation' },
+  { id: 'mongo-insert', name: 'Insert Document', query: '{ "insert": "${collection}", "documents": [\n  { "name": "value" }\n] }', category: 'Write' },
+  { id: 'mongo-update', name: 'Update Documents', query: '{ "update": "${collection}", "updates": [\n  { "q": { "_id": "" }, "u": { "$set": { "field": "value" } } }\n] }', category: 'Write' },
+  { id: 'mongo-delete', name: 'Delete Documents', query: '{ "delete": "${collection}", "deletes": [\n  { "q": { "_id": "" }, "limit": 1 }\n] }', category: 'Write' },
+];
+
+const CYPHER_SNIPPETS: Snippet[] = [
+  { id: 'cypher-match', name: 'Match Nodes', query: 'MATCH (n:${Label})\nRETURN n\nLIMIT 100', category: 'Query' },
+  { id: 'cypher-rel', name: 'Match Relationships', query: 'MATCH (a:${Label1})-[r:${REL_TYPE}]->(b:${Label2})\nRETURN a, r, b\nLIMIT 100', category: 'Query' },
+  { id: 'cypher-create', name: 'Create Node', query: 'CREATE (n:${Label} { name: "${value}" })\nRETURN n', category: 'Write' },
+  { id: 'cypher-create-rel', name: 'Create Relationship', query: 'MATCH (a:${Label1} { name: "${name1}" })\nMATCH (b:${Label2} { name: "${name2}" })\nCREATE (a)-[:${REL_TYPE}]->(b)', category: 'Write' },
+  { id: 'cypher-shortest', name: 'Shortest Path', query: 'MATCH p = shortestPath(\n  (a:${Label} { name: "${start}" })-[*]-(b:${Label} { name: "${end}" })\n)\nRETURN p', category: 'Advanced' },
+  { id: 'cypher-count', name: 'Count by Label', query: 'MATCH (n:${Label})\nRETURN count(n) AS total', category: 'Query' },
+];
+
+const REDIS_SNIPPETS: Snippet[] = [
+  { id: 'redis-get', name: 'GET', query: 'GET ${key}', category: 'String' },
+  { id: 'redis-set', name: 'SET', query: 'SET ${key} ${value}', category: 'String' },
+  { id: 'redis-hgetall', name: 'HGETALL', query: 'HGETALL ${key}', category: 'Hash' },
+  { id: 'redis-hset', name: 'HSET', query: 'HSET ${key} ${field} ${value}', category: 'Hash' },
+  { id: 'redis-keys', name: 'KEYS', query: 'KEYS ${pattern}', category: 'General' },
+  { id: 'redis-info', name: 'INFO', query: 'INFO', category: 'General' },
+  { id: 'redis-lpush', name: 'LPUSH', query: 'LPUSH ${key} ${value}', category: 'List' },
+  { id: 'redis-lrange', name: 'LRANGE', query: 'LRANGE ${key} 0 -1', category: 'List' },
+  { id: 'redis-smembers', name: 'SMEMBERS', query: 'SMEMBERS ${key}', category: 'Set' },
+];
+
+const ELASTICSEARCH_SNIPPETS: Snippet[] = [
+  { id: 'es-match-all', name: 'Match All', query: '{\n  "query": { "match_all": {} },\n  "size": 100\n}', category: 'Query' },
+  { id: 'es-match', name: 'Match Query', query: '{\n  "query": {\n    "match": { "${field}": "${value}" }\n  }\n}', category: 'Query' },
+  { id: 'es-bool', name: 'Bool Query', query: '{\n  "query": {\n    "bool": {\n      "must": [{ "match": { "${field}": "${value}" } }],\n      "filter": [{ "range": { "${date_field}": { "gte": "now-1d" } } }]\n    }\n  }\n}', category: 'Query' },
+  { id: 'es-agg', name: 'Aggregation', query: '{\n  "size": 0,\n  "aggs": {\n    "group_by_${field}": {\n      "terms": { "field": "${field}.keyword", "size": 10 }\n    }\n  }\n}', category: 'Aggregation' },
+];
+
+const CQL_SNIPPETS: Snippet[] = [
+  { id: 'cql-select', name: 'Select All', query: 'SELECT * FROM ${table} LIMIT 100;', category: 'Query' },
+  { id: 'cql-insert', name: 'Insert Row', query: 'INSERT INTO ${table} (${columns}) VALUES (${values});', category: 'Write' },
+  { id: 'cql-update', name: 'Update Row', query: 'UPDATE ${table} SET ${column} = ${value} WHERE ${key} = ${key_value};', category: 'Write' },
+  { id: 'cql-delete', name: 'Delete Row', query: 'DELETE FROM ${table} WHERE ${key} = ${key_value};', category: 'Write' },
+  { id: 'cql-describe', name: 'Describe Table', query: 'DESCRIBE TABLE ${table};', category: 'Schema' },
+  { id: 'cql-keyspaces', name: 'List Keyspaces', query: 'SELECT * FROM system_schema.keyspaces;', category: 'Schema' },
+];
+
+function getSnippetsForCapabilities(capabilities: DatabaseCapabilities | null): Snippet[] {
+  if (!capabilities) return BUILT_IN_SNIPPETS;
+
+  switch (capabilities.databaseType) {
+    case 'mongodb':
+      return MONGODB_SNIPPETS;
+    case 'elasticsearch':
+      return ELASTICSEARCH_SNIPPETS;
+    case 'neo4j':
+      return CYPHER_SNIPPETS;
+    case 'redis':
+      return REDIS_SNIPPETS;
+    case 'cassandra':
+      return CQL_SNIPPETS;
+    default:
+      return BUILT_IN_SNIPPETS;
+  }
 }
 
-export function SnippetPicker({ onSelect }: SnippetPickerProps) {
+interface SnippetPickerProps {
+  onSelect: (query: string) => void;
+  capabilities: DatabaseCapabilities | null;
+}
+
+export function SnippetPicker({ onSelect, capabilities }: SnippetPickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [dropdownPos, setDropdownPos] = useState<DropdownPosition>({ top: 0, right: 0 });
@@ -63,7 +130,9 @@ export function SnippetPicker({ onSelect }: SnippetPickerProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const filtered = BUILT_IN_SNIPPETS.filter(s =>
+  const snippets = useMemo(() => getSnippetsForCapabilities(capabilities), [capabilities]);
+
+  const filtered = snippets.filter(s =>
     s.name.toLowerCase().includes(search.toLowerCase()) ||
     s.category.toLowerCase().includes(search.toLowerCase())
   );
@@ -85,7 +154,7 @@ export function SnippetPicker({ onSelect }: SnippetPickerProps) {
           if (!isOpen) updatePosition();
           setIsOpen(!isOpen);
         }}
-        title="SQL Snippets"
+        title="Code Snippets"
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />

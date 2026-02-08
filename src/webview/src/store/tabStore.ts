@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { IQueryResult, IColumn } from '../types';
+import type { IQueryResult, IColumn, DatabaseCapabilities } from '../types';
 import type { SortingState, ColumnFiltersState } from '@tanstack/react-table';
 
 export interface QueryTab {
@@ -16,6 +16,8 @@ export interface QueryTab {
   columns: IColumn[];
   columnVisibility: Record<string, boolean>;
   columnOrder: string[];
+  databaseType: string | null;
+  capabilities: DatabaseCapabilities | null;
   pageSize: number;
   sortState: SortingState;
   filterState: ColumnFiltersState;
@@ -58,6 +60,8 @@ export const useTabStore = create<TabState>((set, get) => ({
       columns: [],
       columnVisibility: {},
       columnOrder: [],
+      databaseType: null,
+      capabilities: null,
       pageSize: 50,
       sortState: [],
       filterState: [],
