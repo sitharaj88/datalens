@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { randomBytes } from 'crypto';
 import type { ConnectionService } from '../services/connectionService';
 import { MessageRouter } from '../services/messageRouter';
 import type { Message } from '../../shared/types/messages';
@@ -45,7 +46,9 @@ export class QueryWebviewProvider implements vscode.WebviewViewProvider {
         this.view?.webview.postMessage(response);
         return;
       }
-      const response = await this.messageRouter.route(message);
+      const response = await this.messageRouter.route(message, data => {
+        this.view?.webview.postMessage(data);
+      });
       this.view?.webview.postMessage(response);
     });
   }
@@ -143,7 +146,9 @@ export class QueryPanelManager {
           panel.webview.postMessage(response);
           return;
         }
-        const response = await this.messageRouter.route(message);
+        const response = await this.messageRouter.route(message, data => {
+          panel.webview.postMessage(data);
+        });
         panel.webview.postMessage(response);
       },
       undefined
@@ -237,10 +242,7 @@ async function handleSaveFile(message: Message): Promise<{ id: string; success: 
 }
 
 function getNonce(): string {
-  let text = '';
-  const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  for (let i = 0; i < 32; i++) {
-    text += possible.charAt(Math.floor(Math.random() * possible.length));
-  }
-  return text;
+  // Use a cryptographically secure source. A predictable nonce (e.g. Math.random)
+  // weakens the webview CSP and has been the basis of real VS Code extension CVEs.
+  return randomBytes(16).toString('base64');
 }

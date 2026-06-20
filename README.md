@@ -82,8 +82,10 @@ A powerful, all-in-one database client for Visual Studio Code. Browse schemas, e
 
 ### AI-Powered Features
 - Natural language to SQL conversion
+- **Agent mode** — give the AI a goal and it plans, runs SQL step-by-step, reads the results, and refines until done. Steps stream live, and you can insert any generated query into the editor.
 - Query optimization suggestions
 - Supports OpenAI, Anthropic, and Ollama providers
+- **Safe by default** — the agent is read-only unless you enable `dbViewer.ai.agentAllowWrites`, and every statement it runs passes through the same destructive-operation guardrails as manual queries
 
 ### Additional Features
 - Light, dark, and system theme support
@@ -141,8 +143,12 @@ DataLens automatically scans `.env` files in your workspace for database connect
 | `dbViewer.ai.provider` | openai | AI provider (openai, anthropic, ollama) |
 | `dbViewer.ai.apiKey` | | API key for AI features |
 | `dbViewer.ai.model` | | Model name for AI features |
+| `dbViewer.ai.agentMaxSteps` | 8 | Max steps the AI agent may take |
+| `dbViewer.ai.agentAllowWrites` | false | Allow the AI agent to run write/DDL statements |
 | `dbViewer.dataMasking.enabled` | false | Enable sensitive data masking |
 | `dbViewer.schemaCacheTTL` | 60000 | Schema cache duration (ms) |
+| `dbViewer.security.storePasswords` | true | Persist passwords in SecretStorage (off = prompt on connect) |
+| `dbViewer.guardDestructiveQueries` | true | Confirm before destructive statements |
 
 ## Requirements
 

@@ -12,8 +12,10 @@ declare function acquireVsCodeApi(): VsCodeApi;
 const vscodeApi = typeof acquireVsCodeApi !== 'undefined' ? acquireVsCodeApi() : null;
 
 type MessageHandler = (response: Response) => void;
+type ProgressHandler = (data: unknown) => void;
 
 const pendingRequests = new Map<string, MessageHandler>();
+const progressRequests = new Map<string, ProgressHandler>();
 
 let listenerRegistered = false;
 
@@ -22,12 +24,20 @@ function ensureListener() {
   listenerRegistered = true;
 
   window.addEventListener('message', (event: MessageEvent) => {
-    const response = event.data as Response;
+    const data = event.data as (Response & { progress?: boolean; data?: unknown });
 
-    if (response.id && pendingRequests.has(response.id)) {
-      const handler = pendingRequests.get(response.id)!;
-      pendingRequests.delete(response.id);
-      handler(response);
+    // Streaming progress messages (e.g. AI agent steps, import progress) carry a
+    // `progress` marker and must NOT resolve/clear the pending request.
+    if (data && data.progress === true && data.id) {
+      progressRequests.get(data.id)?.(data.data);
+      return;
+    }
+
+    if (data.id && pendingRequests.has(data.id)) {
+      const handler = pendingRequests.get(data.id)!;
+      pendingRequests.delete(data.id);
+      progressRequests.delete(data.id);
+      handler(data);
     }
   });
 }
@@ -44,7 +54,10 @@ export function useVscodeApi() {
     }
   }, []);
 
-  const postMessage = useCallback(<T>(message: Message, options?: { timeout?: number }): Promise<Response<T>> => {
+  const postMessage = useCallback(<T>(
+    message: Message,
+    options?: { timeout?: number; onProgress?: (data: unknown) => void }
+  ): Promise<Response<T>> => {
     const timeout = options?.timeout ?? DEFAULT_TIMEOUT;
 
     return new Promise((resolve) => {
@@ -56,7 +69,12 @@ export function useVscodeApi() {
           timeoutId = null;
         }
         pendingRequests.delete(message.id);
+        progressRequests.delete(message.id);
       };
+
+      if (options?.onProgress) {
+        progressRequests.set(message.id, options.onProgress);
+      }
 
       pendingRequests.set(message.id, (response) => {
         cleanup();

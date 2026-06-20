@@ -48,26 +48,66 @@ const SQL_FUNCTIONS = [
 ];
 
 type Monaco = typeof import('monaco-editor');
+type TableMeta = ISchemaMetadata['tables'][number];
+
+/** A table/CTE referenced in FROM/JOIN, with its optional alias. */
+export interface SqlSource {
+  /** Table name as written (may include a schema prefix). */
+  table: string;
+  alias?: string;
+}
+
+// Words that can directly follow a table name but are NOT an alias.
+const ALIAS_STOPWORDS = new Set([
+  'ON', 'WHERE', 'INNER', 'LEFT', 'RIGHT', 'FULL', 'CROSS', 'JOIN', 'GROUP',
+  'ORDER', 'HAVING', 'LIMIT', 'OFFSET', 'UNION', 'USING', 'AS', 'AND', 'OR',
+  'SET', 'VALUES', 'SELECT', 'FETCH', 'WINDOW', 'LATERAL', 'WITH', 'EXCEPT',
+  'INTERSECT', 'NATURAL', 'STRAIGHT_JOIN',
+]);
+
+/** Normalizes a possibly schema-qualified name to its bare table name, lowercased. */
+function bareName(name: string): string {
+  const parts = name.split('.');
+  return (parts[parts.length - 1] || name).toLowerCase();
+}
 
 /**
- * Get the table name context from the current cursor position.
- * Looks backwards for FROM/JOIN table references to suggest columns.
+ * Parses FROM/JOIN clauses into table sources with their aliases.
+ * Handles `FROM t`, `FROM t alias`, `FROM t AS alias`, `JOIN schema.t a`.
  */
-function getTableContext(textUntilPosition: string): string[] {
-  const tables: string[] = [];
-
-  // Match FROM table, JOIN table patterns
-  const fromMatch = textUntilPosition.match(/(?:FROM|JOIN)\s+["'`]?(\w+)["'`]?/gi);
-  if (fromMatch) {
-    for (const match of fromMatch) {
-      const tableMatch = match.match(/(?:FROM|JOIN)\s+["'`]?(\w+)["'`]?/i);
-      if (tableMatch) {
-        tables.push(tableMatch[1]);
-      }
+export function parseSources(sql: string): SqlSource[] {
+  const sources: SqlSource[] = [];
+  const re = /(?:\bFROM|\bJOIN)\s+["'`]?([\w.]+)["'`]?(?:\s+(?:AS\s+)?["'`]?([A-Za-z_]\w*)["'`]?)?/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(sql)) !== null) {
+    const table = match[1];
+    let alias: string | undefined = match[2];
+    if (alias && ALIAS_STOPWORDS.has(alias.toUpperCase())) {
+      alias = undefined;
     }
+    sources.push({ table, alias });
   }
+  return sources;
+}
 
-  return tables;
+/** Parses CTE names from `WITH a AS (...), b AS (...)`. */
+export function parseCteNames(sql: string): string[] {
+  const names: string[] = [];
+  const re = /(?:\bWITH\b|,)\s+["'`]?(\w+)["'`]?\s+AS\s*\(/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(sql)) !== null) {
+    names.push(match[1]);
+  }
+  return names;
+}
+
+/** Resolves a name (alias OR table name) to its table metadata. */
+export function resolveTable(name: string, sources: SqlSource[], metadata: ISchemaMetadata): TableMeta | undefined {
+  const lower = name.toLowerCase();
+  // Alias match first.
+  const aliased = sources.find(s => s.alias?.toLowerCase() === lower);
+  const target = aliased ? bareName(aliased.table) : bareName(name);
+  return metadata.tables.find(t => t.name.toLowerCase() === target);
 }
 
 /**
@@ -116,17 +156,16 @@ export function registerAutocompleteProvider(monaco: Monaco) {
 
       const suggestions: any[] = [];
       const context = getCompletionContext(textUntilPosition);
+      const sources = currentMetadata ? parseSources(textUntilPosition) : [];
 
-      // Dot completion - table.column
+      // Dot completion - table.column or alias.column
       const lineText = model.getLineContent(position.lineNumber);
       const textBeforeCursor = lineText.substring(0, position.column - 1);
       const dotMatch = textBeforeCursor.match(/(\w+)\.\s*$/);
 
       if (dotMatch && currentMetadata) {
-        const tableName = dotMatch[1];
-        const table = currentMetadata.tables.find(
-          t => t.name.toLowerCase() === tableName.toLowerCase()
-        );
+        const qualifier = dotMatch[1];
+        const table = resolveTable(qualifier, sources, currentMetadata);
         if (table) {
           for (const col of table.columns) {
             suggestions.push({
@@ -168,27 +207,58 @@ export function registerAutocompleteProvider(monaco: Monaco) {
             });
           }
         }
+
+        // CTE names declared in WITH clauses.
+        for (const cte of parseCteNames(textUntilPosition)) {
+          suggestions.push({
+            label: cte,
+            kind: monaco.languages.CompletionItemKind.Struct,
+            detail: 'CTE',
+            insertText: cte,
+            range,
+            sortText: `0_${cte}`,
+          });
+        }
       }
 
-      // Column completions from table context
-      if (currentMetadata && (context === 'column')) {
-        const referencedTables = getTableContext(textUntilPosition);
+      // Column completions from the tables/aliases referenced in this query.
+      if (currentMetadata && context === 'column') {
+        const seenColumns = new Set<string>();
 
-        for (const tableName of referencedTables) {
-          const table = currentMetadata.tables.find(
-            t => t.name.toLowerCase() === tableName.toLowerCase()
-          );
-          if (table) {
-            for (const col of table.columns) {
-              suggestions.push({
-                label: col.name,
-                kind: monaco.languages.CompletionItemKind.Field,
-                detail: `${tableName}.${col.name} (${col.type})`,
-                insertText: col.name,
-                range,
-                sortText: `0_${col.name}`,
-              });
+        // Offer aliases themselves so the user can type `alias.` next.
+        for (const source of sources) {
+          if (source.alias) {
+            suggestions.push({
+              label: source.alias,
+              kind: monaco.languages.CompletionItemKind.Variable,
+              detail: `alias → ${source.table}`,
+              insertText: source.alias,
+              range,
+              sortText: `1_${source.alias}`,
+            });
+          }
+        }
+
+        for (const source of sources) {
+          const table = resolveTable(source.alias ?? source.table, sources, currentMetadata);
+          if (!table) {
+            continue;
+          }
+          const qualifier = source.alias ?? table.name;
+          for (const col of table.columns) {
+            const dedupeKey = `${qualifier}.${col.name}`.toLowerCase();
+            if (seenColumns.has(dedupeKey)) {
+              continue;
             }
+            seenColumns.add(dedupeKey);
+            suggestions.push({
+              label: col.name,
+              kind: monaco.languages.CompletionItemKind.Field,
+              detail: `${qualifier}.${col.name} (${col.type})`,
+              insertText: col.name,
+              range,
+              sortText: `0_${col.name}`,
+            });
           }
         }
       }

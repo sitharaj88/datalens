@@ -34,10 +34,14 @@ export interface DatabaseCapabilities {
   supportsMultiStatement: boolean;
 }
 
+export type ConnectionEnvironment = 'development' | 'staging' | 'production';
+
 export interface IConnectionConfig {
   id: string;
   name: string;
   type: DatabaseType;
+  /** Deployment environment. Production connections get stricter destructive-op guardrails. */
+  environment?: ConnectionEnvironment;
   host?: string;
   port?: number;
   database: string;

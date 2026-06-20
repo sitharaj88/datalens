@@ -1,9 +1,16 @@
 import * as vscode from 'vscode';
 import type { ISchemaMetadata } from '../../shared/types/database';
 
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
 export interface AIProvider {
   generateSQL(prompt: string, schemaContext: string): Promise<string>;
   suggestOptimizations(query: string, schemaContext: string, explainOutput?: string): Promise<string[]>;
+  /** Multi-turn chat completion used by the agentic workflow. */
+  chat(messages: ChatMessage[]): Promise<string>;
 }
 
 class OpenAIProvider implements AIProvider {
@@ -77,6 +84,22 @@ class OpenAIProvider implements AIProvider {
     const text = data.choices[0]?.message?.content?.trim() || '';
     return text.split('\n').filter((line: string) => line.trim().startsWith('-')).map((line: string) => line.trim().slice(2).trim());
   }
+
+  async chat(messages: ChatMessage[]): Promise<string> {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.apiKey}`,
+      },
+      body: JSON.stringify({ model: this.model, messages, temperature: 0.1, max_tokens: 1500 }),
+    });
+    if (!response.ok) {
+      throw new Error(`OpenAI API error: ${await response.text()}`);
+    }
+    const data = await response.json() as { choices: Array<{ message: { content: string } }> };
+    return data.choices[0]?.message?.content?.trim() || '';
+  }
 }
 
 class AnthropicProvider implements AIProvider {
@@ -138,6 +161,28 @@ class AnthropicProvider implements AIProvider {
     const text = data.content[0]?.text?.trim() || '';
     return text.split('\n').filter((line: string) => line.trim().startsWith('-')).map((line: string) => line.trim().slice(2).trim());
   }
+
+  async chat(messages: ChatMessage[]): Promise<string> {
+    // Anthropic takes the system prompt separately and only user/assistant turns in messages.
+    const system = messages.filter(m => m.role === 'system').map(m => m.content).join('\n\n');
+    const turns = messages
+      .filter(m => m.role !== 'system')
+      .map(m => ({ role: m.role, content: m.content }));
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': this.apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({ model: this.model, max_tokens: 1500, system, messages: turns }),
+    });
+    if (!response.ok) {
+      throw new Error(`Anthropic API error: ${await response.text()}`);
+    }
+    const data = await response.json() as { content: Array<{ text: string }> };
+    return data.content[0]?.text?.trim() || '';
+  }
 }
 
 class OllamaProvider implements AIProvider {
@@ -187,6 +232,19 @@ class OllamaProvider implements AIProvider {
     const data = await response.json() as { response: string };
     const text = data.response?.trim() || '';
     return text.split('\n').filter((line: string) => line.trim().startsWith('-')).map((line: string) => line.trim().slice(2).trim());
+  }
+
+  async chat(messages: ChatMessage[]): Promise<string> {
+    const response = await fetch(`${this.baseUrl}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: this.model, messages, stream: false }),
+    });
+    if (!response.ok) {
+      throw new Error('Ollama API error');
+    }
+    const data = await response.json() as { message?: { content: string } };
+    return data.message?.content?.trim() || '';
   }
 }
 
@@ -252,5 +310,12 @@ export class AIService {
       throw new Error('AI provider not configured.');
     }
     return this.provider.suggestOptimizations(query, schemaContext, explainOutput);
+  }
+
+  async chat(messages: ChatMessage[]): Promise<string> {
+    if (!this.provider) {
+      throw new Error('AI provider not configured.');
+    }
+    return this.provider.chat(messages);
   }
 }

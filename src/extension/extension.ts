@@ -56,6 +56,9 @@ export function activate(context: vscode.ExtensionContext): void {
     })
   );
 
+  // Show the getting-started walkthrough once, on first activation.
+  void maybeShowWalkthrough(context);
+
   // Core connection commands
   context.subscriptions.push(
     vscode.commands.registerCommand('dbViewer.addConnection', () => addConnection()),
@@ -209,6 +212,24 @@ export function deactivate(): void {
   sshTunnelService?.closeAll();
 }
 
+const WALKTHROUGH_SHOWN_KEY = 'dbViewer.walkthroughShown';
+
+async function maybeShowWalkthrough(context: vscode.ExtensionContext): Promise<void> {
+  if (context.globalState.get<boolean>(WALKTHROUGH_SHOWN_KEY)) {
+    return;
+  }
+  await context.globalState.update(WALKTHROUGH_SHOWN_KEY, true);
+  try {
+    await vscode.commands.executeCommand(
+      'workbench.action.openWalkthrough',
+      'sitharaj.datalens-db-viewer#datalens.getStarted',
+      false
+    );
+  } catch {
+    // Walkthrough is best-effort; ignore if the command is unavailable.
+  }
+}
+
 async function addConnection(): Promise<void> {
   const dbTypes: vscode.QuickPickItem[] = [
     { label: 'SQLite', description: 'Local file-based database' },
@@ -297,6 +318,19 @@ async function addConnection(): Promise<void> {
     if (sshConfig) {
       config = { ...config, ...sshConfig };
     }
+  }
+
+  // Tag the connection's environment so production gets stricter guardrails.
+  const environment = await vscode.window.showQuickPick(
+    [
+      { label: 'Development', description: 'Default — standard confirmations', value: 'development' as const },
+      { label: 'Staging', description: 'Pre-production', value: 'staging' as const },
+      { label: 'Production', description: 'Destructive operations require a typed confirmation', value: 'production' as const }
+    ],
+    { placeHolder: 'Select environment for this connection' }
+  );
+  if (environment) {
+    config = { ...config, environment: environment.value };
   }
 
   try {
@@ -593,10 +627,13 @@ async function connect(
       async () => {
         const config = item.connection;
 
-        // Create SSH tunnel if enabled
+        // Create SSH tunnel if enabled. SSH credentials live in SecretStorage,
+        // so hydrate the full config before handing it to the tunnel service.
         if (config.sshEnabled && config.sshHost) {
           try {
-            const localPort = await sshTunnelService.createTunnel(config);
+            const tunnelConfig =
+              (await connectionService.getConnectionWithSecrets(config.id)) ?? config;
+            const localPort = await sshTunnelService.createTunnel(tunnelConfig);
             // Update the connection to use the tunnel's local port
             await connectionService.updateConnection({
               ...config,

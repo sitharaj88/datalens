@@ -317,6 +317,18 @@
           "default": "",
           "description": "Model to use for AI features (e.g., gpt-4, claude-sonnet-4-5-20250929)"
         },
+        "dbViewer.ai.agentMaxSteps": {
+          "type": "number",
+          "default": 8,
+          "minimum": 1,
+          "maximum": 25,
+          "description": "Maximum number of steps the AI agent may take to accomplish a goal."
+        },
+        "dbViewer.ai.agentAllowWrites": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow the AI agent to run data-modifying statements (INSERT/UPDATE/DELETE/DDL). When off, the agent is restricted to read-only queries. Even when on, destructive operations still require confirmation."
+        },
         "dbViewer.dataMasking.enabled": {
           "type": "boolean",
           "default": false,
@@ -337,17 +349,83 @@
           "type": "number",
           "default": 60000,
           "description": "Schema cache time-to-live in milliseconds"
+        },
+        "dbViewer.security.storePasswords": {
+          "type": "boolean",
+          "default": true,
+          "description": "Store connection passwords in VS Code SecretStorage. When disabled, passwords are never persisted and you are prompted for them each time you connect. Note: SecretStorage is not isolated between extensions — see SECURITY.md."
+        },
+        "dbViewer.guardDestructiveQueries": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ask for confirmation before running destructive statements (DROP, TRUNCATE, and DELETE/UPDATE without a WHERE clause). Production connections and irreversible operations require a typed confirmation."
         }
       }
-    }
+    },
+    "walkthroughs": [
+      {
+        "id": "datalens.getStarted",
+        "title": "Get Started with DataLens",
+        "description": "Connect a database, run your first query, edit data safely, and try AI-powered SQL — all without leaving VS Code.",
+        "steps": [
+          {
+            "id": "datalens.addConnection",
+            "title": "Add a database connection",
+            "description": "DataLens supports 15+ databases. Add one via a form, a connection URI, or auto-discovery from your workspace .env files.\n[Add Connection](command:dbViewer.addConnection)",
+            "media": {
+              "markdown": "media/walkthrough/add-connection.md"
+            },
+            "completionEvents": [
+              "onCommand:dbViewer.addConnection",
+              "onCommand:dbViewer.addConnectionFromURI"
+            ]
+          },
+          {
+            "id": "datalens.runQuery",
+            "title": "Run your first query",
+            "description": "Open a query tab and run SQL with Ctrl/Cmd+Enter. The Monaco editor gives you schema-aware, alias-resolving autocomplete.\n[New Query](command:dbViewer.newQuery)",
+            "media": {
+              "markdown": "media/walkthrough/run-query.md"
+            },
+            "completionEvents": [
+              "onCommand:dbViewer.newQuery"
+            ]
+          },
+          {
+            "id": "datalens.editSafely",
+            "title": "Edit data with guardrails",
+            "description": "Edit rows inline in the results grid. Destructive statements (DROP, TRUNCATE, DELETE/UPDATE without WHERE) ask for confirmation — and production connections require a typed confirmation.",
+            "media": {
+              "markdown": "media/walkthrough/edit-safely.md"
+            }
+          },
+          {
+            "id": "datalens.aiSql",
+            "title": "Generate SQL with AI",
+            "description": "Describe what you want in plain English and let DataLens write the SQL. Works with OpenAI, Anthropic, or a local Ollama model.\n[Open Settings](command:workbench.action.openSettings?%22dbViewer.ai%22)",
+            "media": {
+              "markdown": "media/walkthrough/ai-sql.md"
+            }
+          },
+          {
+            "id": "datalens.security",
+            "title": "Know how your credentials are stored",
+            "description": "Credentials are kept in VS Code SecretStorage, never in plaintext. Learn the one important limitation and how to lock down production connections.",
+            "media": {
+              "markdown": "media/walkthrough/security.md"
+            }
+          }
+        ]
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run build",
     "build": "npm run build:extension && npm run build:webview",
-    "build:extension": "esbuild src/extension/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:ssh2 --external:@clickhouse/client --external:neo4j-driver --external:@aws-sdk/client-dynamodb --external:@aws-sdk/lib-dynamodb --external:pg --external:mysql2 --external:mongodb --external:ioredis --external:cassandra-driver --external:oracledb --external:tedious --external:better-sqlite3 --external:@elastic/elasticsearch --external:firebase-admin --format=cjs --platform=node --minify && cp node_modules/sql.js/dist/sql-wasm.wasm dist/",
+    "build:extension": "esbuild src/extension/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:ssh2 --external:@clickhouse/client --external:neo4j-driver --external:@aws-sdk/client-dynamodb --external:@aws-sdk/lib-dynamodb --external:pg --external:mysql2 --external:mongodb --external:ioredis --external:cassandra-driver --external:oracledb --external:tedious --external:better-sqlite3 --external:@elastic/elasticsearch --external:firebase-admin --format=cjs --platform=node --minify && node scripts/copy-wasm.mjs",
     "build:webview": "cd src/webview && npm run build",
     "watch": "concurrently \"npm run watch:extension\" \"npm run watch:webview\"",
-    "watch:extension": "cp node_modules/sql.js/dist/sql-wasm.wasm dist/ 2>/dev/null; esbuild src/extension/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:ssh2 --external:@clickhouse/client --external:neo4j-driver --external:@aws-sdk/client-dynamodb --external:@aws-sdk/lib-dynamodb --external:pg --external:mysql2 --external:mongodb --external:ioredis --external:cassandra-driver --external:oracledb --external:tedious --external:better-sqlite3 --external:@elastic/elasticsearch --external:firebase-admin --format=cjs --platform=node --watch --sourcemap",
+    "watch:extension": "node scripts/copy-wasm.mjs && esbuild src/extension/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:ssh2 --external:@clickhouse/client --external:neo4j-driver --external:@aws-sdk/client-dynamodb --external:@aws-sdk/lib-dynamodb --external:pg --external:mysql2 --external:mongodb --external:ioredis --external:cassandra-driver --external:oracledb --external:tedious --external:better-sqlite3 --external:@elastic/elasticsearch --external:firebase-admin --format=cjs --platform=node --watch --sourcemap",
     "watch:webview": "cd src/webview && npm run dev",
     "lint": "eslint src --ext ts,tsx",
     "lint:fix": "eslint src --ext ts,tsx --fix",

@@ -1,5 +1,9 @@
+import * as vscode from 'vscode';
 import type { ConnectionService } from './connectionService';
 import { AdapterFactory } from '../database/factory';
+import { assessDestructiveness, isWriteStatement, type DestructiveAssessment } from './destructiveQueryGuard';
+import { runAgent } from './aiAgentService';
+import type { IQueryResult } from '../../shared/types/database';
 import type { Message, Response } from '../../shared/types/messages';
 import type { IDatabaseAdapter } from '../database/interfaces/IAdapter';
 import { SchemaCache } from './schemaCache';
@@ -55,6 +59,12 @@ export class MessageRouter {
         case 'EXECUTE_QUERY': {
           const { connectionId, sql } = message.payload as { connectionId: string; sql: string };
           const adapter = this.getConnectedAdapter(connectionId);
+          if (!(await this.confirmDestructiveQuery(connectionId, sql))) {
+            response.success = false;
+            response.cancelled = true;
+            response.error = 'Query cancelled.';
+            break;
+          }
           const result = await adapter.executeQuery(sql);
           response.success = !result.error;
           response.data = result;
@@ -364,6 +374,47 @@ export class MessageRouter {
           break;
         }
 
+        // AI: Agentic multi-step data workflow
+        case 'AI_AGENT_RUN': {
+          const { connectionId, goal } = message.payload as { connectionId: string; goal: string };
+          if (!this.aiService?.isConfigured()) {
+            response.error = 'AI provider not configured. Set up your API key in Settings > DataLens > AI.';
+            break;
+          }
+          const aiService = this.aiService;
+          const adapter = this.getConnectedAdapter(connectionId);
+          const cfg = vscode.workspace.getConfiguration('dbViewer.ai');
+          const maxSteps = cfg.get<number>('agentMaxSteps', 8);
+          const allowWrites = cfg.get<boolean>('agentAllowWrites', false);
+
+          const metadata = await SchemaCache.getInstance().getMetadata(connectionId);
+          const schemaContext = metadata ? aiService.formatSchemaContext(metadata) : '';
+
+          const result = await runAgent({
+            goal,
+            schemaContext,
+            maxSteps,
+            allowWrites,
+            chat: msgs => aiService.chat(msgs),
+            isWrite: isWriteStatement,
+            runSql: async (sql: string) => {
+              if (!(await this.confirmDestructiveQuery(connectionId, sql))) {
+                return { ok: false, cancelled: true, summary: 'User cancelled this statement.' };
+              }
+              const r = await adapter.executeQuery(sql);
+              if (r.error) {
+                return { ok: false, summary: `Error: ${r.error}` };
+              }
+              return { ok: true, summary: this.summarizeResult(r) };
+            },
+            onStep: step => onProgress?.({ type: 'AI_AGENT_STEP', id: message.id, progress: true, data: step }),
+          });
+
+          response.success = true;
+          response.data = result;
+          break;
+        }
+
         // Query Bookmarks
         case 'SAVE_QUERY': {
           const { name, query, connectionId: connId, tags } = message.payload as {
@@ -470,7 +521,7 @@ export class MessageRouter {
           };
 
           const progressCallback = onProgress ? (p: unknown) => {
-            onProgress({ type: 'IMPORT_PROGRESS', id: message.id, data: p });
+            onProgress({ type: 'IMPORT_PROGRESS', id: message.id, progress: true, data: p });
           } : undefined;
 
           let importProgress;
@@ -509,6 +560,12 @@ export class MessageRouter {
           const execDdlAdapter = this.getConnectedAdapter(connectionId);
           const execDdlDbType = execDdlAdapter.getDatabaseType() as DatabaseType;
           const execDdl = this.ddlGenerator.generateCreateTable(tableDefinition, execDdlDbType);
+          if (!(await this.confirmDestructiveQuery(connectionId, execDdl))) {
+            response.success = false;
+            response.cancelled = true;
+            response.error = 'DDL execution cancelled.';
+            break;
+          }
           const execDdlResult = await execDdlAdapter.executeQuery(execDdl);
           response.success = !execDdlResult.error;
           response.data = execDdlResult;
@@ -627,5 +684,80 @@ export class MessageRouter {
       throw new Error('Not connected to database');
     }
     return adapter;
+  }
+
+  /** Compact, model-facing summary of a query result for the agent loop. */
+  private summarizeResult(result: IQueryResult): string {
+    if (result.affectedRows !== undefined && (!result.rows || result.rows.length === 0)) {
+      return `OK. ${result.affectedRows} row(s) affected.`;
+    }
+    const rows = result.rows ?? [];
+    const previewRows = rows.slice(0, 20);
+    let preview = '';
+    try {
+      preview = JSON.stringify(previewRows);
+    } catch {
+      preview = '[unserializable rows]';
+    }
+    // Bound the size fed back to the model.
+    if (preview.length > 4000) {
+      preview = preview.slice(0, 4000) + '…(truncated)';
+    }
+    const more = rows.length > previewRows.length ? ` (showing first ${previewRows.length} of ${rows.length})` : '';
+    return `${rows.length} row(s)${more}. Columns: ${result.columns.map(c => c.name).join(', ')}. Rows: ${preview}`;
+  }
+
+  /**
+   * Prompts the user before running a destructive statement. Returns true when
+   * the query may proceed. Production connections, and irreversible operations,
+   * require an explicit typed confirmation.
+   */
+  private async confirmDestructiveQuery(connectionId: string, sql: string): Promise<boolean> {
+    const guardEnabled = vscode.workspace
+      .getConfiguration('dbViewer')
+      .get<boolean>('guardDestructiveQueries', true);
+    if (!guardEnabled) {
+      return true;
+    }
+
+    const assessment: DestructiveAssessment = assessDestructiveness(sql);
+    if (assessment.level === 'none') {
+      return true;
+    }
+
+    const connection = this.connectionService.getConnection(connectionId);
+    const environment = connection?.environment ?? 'development';
+    const isProduction = environment === 'production';
+    const connectionLabel = connection?.name ?? 'this connection';
+
+    // Caution-level on a non-production connection: a single modal confirm.
+    const requiresTypedConfirm = isProduction || assessment.irreversible;
+    const detail = assessment.reasons.join('\n');
+
+    if (!requiresTypedConfirm) {
+      const pick = await vscode.window.showWarningMessage(
+        `Run this statement against "${connectionLabel}"?`,
+        { modal: true, detail },
+        'Run Query'
+      );
+      return pick === 'Run Query';
+    }
+
+    // Production or irreversible: require the user to type a confirmation phrase.
+    const phrase = isProduction ? 'RUN ON PRODUCTION' : 'RUN';
+    const banner = isProduction
+      ? `⚠ PRODUCTION connection "${connectionLabel}".\n\n${detail}`
+      : detail;
+
+    const typed = await vscode.window.showInputBox({
+      ignoreFocusOut: true,
+      title: `Confirm destructive operation on "${connectionLabel}"`,
+      prompt: `${banner}\n\nType "${phrase}" to proceed.`,
+      placeHolder: phrase,
+      validateInput: value =>
+        value === phrase ? null : `Type "${phrase}" exactly to confirm, or press Escape to cancel.`,
+    });
+
+    return typed === phrase;
   }
 }

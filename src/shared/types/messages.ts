@@ -42,6 +42,8 @@ export type MessageType =
   // AI
   | 'NL_TO_SQL'
   | 'SUGGEST_OPTIMIZATIONS'
+  | 'AI_AGENT_RUN'
+  | 'AI_AGENT_STEP'
   // Table design
   | 'GENERATE_DDL'
   | 'EXECUTE_DDL'
@@ -74,6 +76,8 @@ export interface Response<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
+  /** Set when the user cancelled a confirmation prompt (e.g. a destructive query). */
+  cancelled?: boolean;
 }
 
 export interface ConnectPayload {
