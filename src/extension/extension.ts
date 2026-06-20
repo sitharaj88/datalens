@@ -10,6 +10,7 @@ import { AIService } from './services/aiService';
 import { QueryBookmarkService } from './services/queryBookmarkService';
 import { QueryLibraryTreeProvider } from './providers/queryLibraryTreeProvider';
 import { GlobalSearchService } from './services/globalSearchService';
+import { registerChatParticipant, registerLanguageModelTools } from './services/aiChatParticipant';
 import { DatabaseType } from '../shared/types/database';
 import { DEFAULT_PORT } from '../shared/constants';
 import type { IConnectionConfig } from '../shared/types/database';
@@ -58,6 +59,16 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Show the getting-started walkthrough once, on first activation.
   void maybeShowWalkthrough(context);
+
+  // Register the @datalens chat participant and language-model tools so users
+  // can drive the database from Copilot Chat / agent mode. Guarded because these
+  // APIs require a recent VS Code with Copilot available.
+  try {
+    registerChatParticipant(context, connectionService, aiService);
+    registerLanguageModelTools(context, connectionService);
+  } catch (err) {
+    console.warn('DataLens: chat/LM integration unavailable:', err);
+  }
 
   // Core connection commands
   context.subscriptions.push(

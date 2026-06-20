@@ -248,6 +248,78 @@ class OllamaProvider implements AIProvider {
   }
 }
 
+/**
+ * Sends a chat conversation to a VS Code Language Model (e.g. a GitHub Copilot
+ * model) and returns the concatenated text. Shared by the Copilot provider and
+ * the chat participant.
+ */
+export async function chatWithLmModel(
+  model: vscode.LanguageModelChat,
+  messages: ChatMessage[],
+  token?: vscode.CancellationToken
+): Promise<string> {
+  const lmMessages = messages.map(m =>
+    m.role === 'assistant'
+      ? vscode.LanguageModelChatMessage.Assistant(m.content)
+      : vscode.LanguageModelChatMessage.User(m.content)
+  );
+  const cancellation = token ?? new vscode.CancellationTokenSource().token;
+  const response = await model.sendRequest(lmMessages, {}, cancellation);
+  let text = '';
+  for await (const fragment of response.text) {
+    text += fragment;
+  }
+  return text.trim();
+}
+
+/**
+ * Uses the GitHub Copilot language models already available in VS Code via the
+ * Language Model API — no API key required. Requires the user to have Copilot.
+ */
+class CopilotProvider implements AIProvider {
+  constructor(private family?: string) {}
+
+  private async getModel(): Promise<vscode.LanguageModelChat> {
+    const selector = this.family ? { vendor: 'copilot', family: this.family } : { vendor: 'copilot' };
+    let models = await vscode.lm.selectChatModels(selector);
+    if (models.length === 0 && this.family) {
+      // Fall back to any Copilot model if the requested family isn't present.
+      models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
+    }
+    if (models.length === 0) {
+      throw new Error(
+        'No GitHub Copilot language models are available. Install and sign in to GitHub Copilot, or choose a different AI provider in Settings > DataLens > AI.'
+      );
+    }
+    return models[0];
+  }
+
+  async chat(messages: ChatMessage[]): Promise<string> {
+    const model = await this.getModel();
+    return chatWithLmModel(model, messages);
+  }
+
+  async generateSQL(prompt: string, schemaContext: string): Promise<string> {
+    const out = await this.chat([
+      {
+        role: 'user',
+        content: `You are a SQL expert. Given this database schema, write a single SQL query for the request. Output ONLY the SQL, no explanation or markdown.\n\nSchema:\n${schemaContext}\n\nRequest: ${prompt}`,
+      },
+    ]);
+    return out.replace(/^```sql\n?/i, '').replace(/\n?```$/i, '').trim();
+  }
+
+  async suggestOptimizations(query: string, schemaContext: string, explainOutput?: string): Promise<string[]> {
+    const out = await this.chat([
+      {
+        role: 'user',
+        content: `You are a SQL optimization expert. Suggest optimizations for the query. Return each suggestion on its own line prefixed with "- ".\n\nSchema:\n${schemaContext}${explainOutput ? `\n\nEXPLAIN output:\n${explainOutput}` : ''}\n\nQuery:\n${query}`,
+      },
+    ]);
+    return out.split('\n').filter(line => line.trim().startsWith('-')).map(line => line.trim().slice(2).trim());
+  }
+}
+
 export class AIService {
   private provider: AIProvider | null = null;
 
@@ -262,6 +334,9 @@ export class AIService {
     const model = config.get<string>('model', '');
 
     switch (providerName) {
+      case 'copilot':
+        this.provider = new CopilotProvider(model || undefined);
+        break;
       case 'openai':
         if (apiKey) {
           this.provider = new OpenAIProvider(apiKey, model || undefined);

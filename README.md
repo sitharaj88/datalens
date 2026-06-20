@@ -84,7 +84,9 @@ A powerful, all-in-one database client for Visual Studio Code. Browse schemas, e
 - Natural language to SQL conversion
 - **Agent mode** — give the AI a goal and it plans, runs SQL step-by-step, reads the results, and refines until done. Steps stream live, and you can insert any generated query into the editor.
 - Query optimization suggestions
-- Supports OpenAI, Anthropic, and Ollama providers
+- Providers: **GitHub Copilot** (no API key — reuses your Copilot subscription, incl. its Claude/GPT/Gemini models), OpenAI, Anthropic, and Ollama
+- **`@datalens` in Copilot Chat** — ask questions about your active connection right in the chat panel; DataLens runs the agent against your DB and streams each step
+- **Language-model tools** (`run_sql`, `get_schema`) — usable from Copilot agent mode so the assistant can query your database
 - **Safe by default** — the agent is read-only unless you enable `dbViewer.ai.agentAllowWrites`, and every statement it runs passes through the same destructive-operation guardrails as manual queries
 
 ### Additional Features

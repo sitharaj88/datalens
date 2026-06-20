@@ -1,9 +1,10 @@
 import * as vscode from 'vscode';
 import type { ConnectionService } from './connectionService';
 import { AdapterFactory } from '../database/factory';
-import { assessDestructiveness, isWriteStatement, type DestructiveAssessment } from './destructiveQueryGuard';
+import { isWriteStatement } from './destructiveQueryGuard';
+import { confirmDestructiveQuery } from './queryConfirmation';
 import { runAgent } from './aiAgentService';
-import type { IQueryResult } from '../../shared/types/database';
+import { summarizeQueryResult } from './resultSummary';
 import type { Message, Response } from '../../shared/types/messages';
 import type { IDatabaseAdapter } from '../database/interfaces/IAdapter';
 import { SchemaCache } from './schemaCache';
@@ -405,7 +406,7 @@ export class MessageRouter {
               if (r.error) {
                 return { ok: false, summary: `Error: ${r.error}` };
               }
-              return { ok: true, summary: this.summarizeResult(r) };
+              return { ok: true, summary: summarizeQueryResult(r) };
             },
             onStep: step => onProgress?.({ type: 'AI_AGENT_STEP', id: message.id, progress: true, data: step }),
           });
@@ -686,78 +687,12 @@ export class MessageRouter {
     return adapter;
   }
 
-  /** Compact, model-facing summary of a query result for the agent loop. */
-  private summarizeResult(result: IQueryResult): string {
-    if (result.affectedRows !== undefined && (!result.rows || result.rows.length === 0)) {
-      return `OK. ${result.affectedRows} row(s) affected.`;
-    }
-    const rows = result.rows ?? [];
-    const previewRows = rows.slice(0, 20);
-    let preview = '';
-    try {
-      preview = JSON.stringify(previewRows);
-    } catch {
-      preview = '[unserializable rows]';
-    }
-    // Bound the size fed back to the model.
-    if (preview.length > 4000) {
-      preview = preview.slice(0, 4000) + '…(truncated)';
-    }
-    const more = rows.length > previewRows.length ? ` (showing first ${previewRows.length} of ${rows.length})` : '';
-    return `${rows.length} row(s)${more}. Columns: ${result.columns.map(c => c.name).join(', ')}. Rows: ${preview}`;
-  }
-
-  /**
-   * Prompts the user before running a destructive statement. Returns true when
-   * the query may proceed. Production connections, and irreversible operations,
-   * require an explicit typed confirmation.
-   */
+  /** Prompts the user before running a destructive statement (see queryConfirmation). */
   private async confirmDestructiveQuery(connectionId: string, sql: string): Promise<boolean> {
-    const guardEnabled = vscode.workspace
-      .getConfiguration('dbViewer')
-      .get<boolean>('guardDestructiveQueries', true);
-    if (!guardEnabled) {
-      return true;
-    }
-
-    const assessment: DestructiveAssessment = assessDestructiveness(sql);
-    if (assessment.level === 'none') {
-      return true;
-    }
-
     const connection = this.connectionService.getConnection(connectionId);
-    const environment = connection?.environment ?? 'development';
-    const isProduction = environment === 'production';
-    const connectionLabel = connection?.name ?? 'this connection';
-
-    // Caution-level on a non-production connection: a single modal confirm.
-    const requiresTypedConfirm = isProduction || assessment.irreversible;
-    const detail = assessment.reasons.join('\n');
-
-    if (!requiresTypedConfirm) {
-      const pick = await vscode.window.showWarningMessage(
-        `Run this statement against "${connectionLabel}"?`,
-        { modal: true, detail },
-        'Run Query'
-      );
-      return pick === 'Run Query';
-    }
-
-    // Production or irreversible: require the user to type a confirmation phrase.
-    const phrase = isProduction ? 'RUN ON PRODUCTION' : 'RUN';
-    const banner = isProduction
-      ? `⚠ PRODUCTION connection "${connectionLabel}".\n\n${detail}`
-      : detail;
-
-    const typed = await vscode.window.showInputBox({
-      ignoreFocusOut: true,
-      title: `Confirm destructive operation on "${connectionLabel}"`,
-      prompt: `${banner}\n\nType "${phrase}" to proceed.`,
-      placeHolder: phrase,
-      validateInput: value =>
-        value === phrase ? null : `Type "${phrase}" exactly to confirm, or press Escape to cancel.`,
+    return confirmDestructiveQuery(sql, {
+      environment: connection?.environment,
+      connectionLabel: connection?.name ?? 'this connection',
     });
-
-    return typed === phrase;
   }
 }

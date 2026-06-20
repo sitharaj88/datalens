@@ -18,7 +18,7 @@
     "url": "https://github.com/sitharaj88/datalens/issues"
   },
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.97.0"
   },
   "categories": [
     "Other",
@@ -300,12 +300,19 @@
         "dbViewer.ai.provider": {
           "type": "string",
           "enum": [
+            "copilot",
             "openai",
             "anthropic",
             "ollama"
           ],
+          "enumDescriptions": [
+            "Use the GitHub Copilot models already available in VS Code (no API key required; requires GitHub Copilot)",
+            "OpenAI API (requires an API key)",
+            "Anthropic API (requires an API key)",
+            "Local Ollama models (no API key; runs on your machine)"
+          ],
           "default": "openai",
-          "description": "AI provider for natural language to SQL"
+          "description": "AI provider for natural language to SQL and the AI agent. 'copilot' reuses your existing GitHub Copilot subscription — no API key needed."
         },
         "dbViewer.ai.apiKey": {
           "type": "string",
@@ -362,6 +369,59 @@
         }
       }
     },
+    "chatParticipants": [
+      {
+        "id": "datalens.chat",
+        "name": "datalens",
+        "fullName": "DataLens",
+        "description": "Ask questions about your connected database in natural language",
+        "isSticky": true
+      }
+    ],
+    "languageModelTools": [
+      {
+        "name": "datalens_run_sql",
+        "displayName": "Run SQL (DataLens)",
+        "modelDescription": "Execute a single read-only SQL query (SELECT/SHOW/EXPLAIN) against the user's active DataLens database connection and return the resulting rows. Write and DDL statements are rejected.",
+        "toolReferenceName": "runSql",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(database)",
+        "tags": [
+          "datalens",
+          "database",
+          "sql"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "sql": {
+              "type": "string",
+              "description": "A single read-only SQL statement to execute against the active connection."
+            }
+          },
+          "required": [
+            "sql"
+          ]
+        }
+      },
+      {
+        "name": "datalens_get_schema",
+        "displayName": "Get database schema (DataLens)",
+        "modelDescription": "Return the tables, columns and views of the user's active DataLens database connection, so SQL can be written against the real schema.",
+        "toolReferenceName": "dbSchema",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(table)",
+        "tags": [
+          "datalens",
+          "database",
+          "schema"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    ],
     "walkthroughs": [
       {
         "id": "datalens.getStarted",
@@ -436,7 +496,7 @@
   "devDependencies": {
     "@types/node": "^20.11.0",
     "@types/ssh2": "^1.15.0",
-    "@types/vscode": "^1.85.0",
+    "@types/vscode": "^1.125.0",
     "@typescript-eslint/eslint-plugin": "^6.19.0",
     "@typescript-eslint/parser": "^6.19.0",
     "@vscode/test-electron": "^2.3.8",
